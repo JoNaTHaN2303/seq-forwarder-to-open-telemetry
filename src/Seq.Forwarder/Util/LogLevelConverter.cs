@@ -10,17 +10,17 @@ namespace Seq.Forwarder.Util
             switch (serilogLevel.ToLower())
             {
                 case "verbose":
-                    return (5, "TRACE");
+                    return (4, "TRACE");
                 case "debug":
-                    return (9, "DEBUG");
+                    return (8, "DEBUG");
                 case "information":
-                    return (13, "INFO");
+                    return (12, "INFO");
                 case "warning":
-                    return (17, "WARN");
+                    return (16, "WARN");
                 case "error":
-                    return (21, "ERROR");
+                    return (20, "ERROR");
                 case "fatal":
-                    return (23, "FATAL");
+                    return (24, "FATAL");
                 default:
                     throw new ArgumentOutOfRangeException(nameof(serilogLevel), serilogLevel, "Unknown Serilog level");
             }

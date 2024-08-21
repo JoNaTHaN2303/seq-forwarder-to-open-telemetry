@@ -33,6 +33,7 @@ namespace Seq.Forwarder.Shipper
 {
     sealed class HttpLogShipper : LogShipper
     {
+        //ToDo make dynamic
         //const string BulkUploadResource = "api/events/raw";
         const string BulkUploadResource = "v1/logs";
 

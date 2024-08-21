@@ -45,7 +45,7 @@ namespace Seq.Forwarder.Storage
             }
             TimestampObserved = DateTimeOffset.UtcNow.ToUnixTimeNanoseconds().ToString();
             string? level = ExtractJsonValue(entry, "Level");
-            (SeverityNumber, SeverityText) = level != null ? LogLevelConverter.ConvertToOpenTelemetry(level) : (13, "INFO");
+            (SeverityNumber, SeverityText) = level != null ? LogLevelConverter.ConvertToOpenTelemetry(level) : (12, "INFO");
 
             string? messageTemplate = ExtractJsonValue(entry, "MessageTemplate");
             Body = new Dictionary<string, string?> { { "stringValue", messageTemplate } };
