@@ -25,12 +25,26 @@ using Serilog;
 using System.Threading.Tasks;
 using Seq.Forwarder.Multiplexing;
 using Seq.Forwarder.Util;
+using Seq.Forwarder.Schema;
+using OpenTelemetry;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using Google.Protobuf;
+using OpenTelemetry.Proto.Collector.Logs.V1;
+using OpenTelemetry.Proto.Logs.V1;
+using OpenTelemetry.Proto.Common.V1;
+using System.Collections.Generic;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
+using System.Text.Json;
+using Google.Protobuf.WellKnownTypes;
 
 namespace Seq.Forwarder.Shipper
 {
     sealed class HttpLogShipper : LogShipper
     {
-        const string BulkUploadResource = "api/events/raw";
+        const string BulkUploadResource = "v1/logs";
 
         readonly string? _apiKey;
         readonly LogBuffer _logBuffer;
@@ -118,6 +132,15 @@ namespace Seq.Forwarder.Shipper
                 do
                 {
                     var available = _logBuffer.Peek((int)_outputConfig.RawPayloadLimitBytes);
+                    
+                    if(available.Length > 1)
+                    {
+                        foreach (var field in available)
+                        {
+                            Console.WriteLine("available value: " + Encoding.UTF8.GetString(field.Value));
+                        }
+                    }
+
                     if (available.Length == 0)
                     {
                         if (DateTime.UtcNow < _nextRequiredLevelCheck || _connectionSchedule.LastConnectionFailed)
@@ -129,7 +152,11 @@ namespace Seq.Forwarder.Shipper
                         }
                     }
 
-                    MakePayload(available, sendingSingles > 0, out Stream payload, out ulong lastIncluded);
+                    //MakePayloadSeq(available, sendingSingles > 0, out Stream payload, out ulong lastIncluded);
+                    MakePayloadOpenTelemetry(available, sendingSingles > 0, out Stream payload, out ulong lastIncluded);
+
+                    //ulong lastIncluded = 0;
+                    //var payload = new MemoryStream(Encoding.UTF8.GetBytes("{\"resourceLogs\": [{\"resource\": {\"attributes\": [{\"key\": \"service.name\",\"value\": {\"stringValue\": \"service2\"}}]},\"scopeLogs\": [{\"scope\": {\"name\": \"my.library\",\"version\": \"1.0.0\",\"attributes\": [{\"key\": \"my.scope.attribute\",\"value\": {\"stringValue\": \"some scope attribute\"}}]},\"logRecords\": [{\"timeUnixNano\": \"1724228899000000000\",\"observedTimeUnixNano\": \"1724228899000000000\",\"severityNumber\": 10,\"severityText\": \"Information\",\"traceId\": \"5B8EFFF798038103D269B633813FC60C\",\"spanId\": \"EEE19B7EC3C1B174\",\"body\": {\"stringValue\": \"Example log record\"},\"attributes\": [{\"key\": \"string.attribute\",\"value\": {\"stringValue\": \"some string\"}},{\"key\": \"boolean.attribute\",\"value\": {\"boolValue\": true}},{\"key\": \"int.attribute\",\"value\": {\"intValue\": \"10\"}},{\"key\": \"double.attribute\",\"value\": {\"doubleValue\": 637.704}},{\"key\": \"array.attribute\",\"value\": {\"arrayValue\": {\"values\": [{\"stringValue\": \"many\"},{\"stringValue\": \"values\"}]}}},{\"key\": \"map.attribute\",\"value\": {\"kvlistValue\": {\"values\": [{\"key\": \"some.map.key\",\"value\": {\"stringValue\": \"some value\"}}]}}}]}]}]}]}"));
 
                     var content = new StreamContent(new UnclosableStreamWrapper(payload));
                     content.Headers.ContentType = new MediaTypeHeaderValue("application/json")
@@ -203,7 +230,92 @@ namespace Seq.Forwarder.Shipper
             }
         }
 
-        void MakePayload(LogBufferEntry[] entries, bool oneOnly, out Stream utf8Payload, out ulong lastIncluded)
+        void MakePayloadOpenTelemetry(LogBufferEntry[] entries, bool oneOnly, out Stream payload, out ulong lastIncluded)
+        {
+            lastIncluded = 0;
+
+            // Create a list to hold log records
+            var logRecords = new List<object>();
+
+            // Iterate over each log entry
+            foreach (var entry in entries)
+            {
+                //logRecords.Add(new MessageExtracter(entry.Value));
+                var seqMessageEntry = new MessageExtracter(entry.Value);
+
+                // Convert log entry to OpenTelemetry log record format
+                var logRecord = new
+                {
+                    timeUnixNano = seqMessageEntry.timeUnixNano,
+                    observedTimeUnixNano = seqMessageEntry.observedTimeUnixNano,
+                    severityText = seqMessageEntry.severityText,
+                    traceId = seqMessageEntry.traceId,
+                    spanId = seqMessageEntry.spanId,
+                    body = new
+                    {
+                        stringValue = seqMessageEntry.MessageTemplate
+                    },
+                    attributes = new[]
+                    {
+                        new {
+                            key = "example.attribute",
+                            value = new {
+                                stringValue = "example value"
+                            }
+                        }
+                    }
+                };
+
+                logRecords.Add(logRecord);
+                lastIncluded = entry.Key;
+
+                if (oneOnly)
+                    break;
+            }
+
+            // Construct the final payload
+            var payloadObject = new
+            {
+                resourceLogs = new[]
+                {
+                    new
+                    {
+                        resource = new
+                        {
+                            attributes = new[]
+                            {
+                                new { key = "service.name", value = new { stringValue = "TestService3" } }
+                            }
+                        },
+                        scopeLogs = new[]
+                        {
+                            new
+                            {
+                                scope = new
+                                {
+                                    name = "my.library",
+                                    version = "1.0.0",
+                                    attributes = new[]
+                                    {
+                                        new { key = "my.scope.attribute", value = new { stringValue = "some scope attribute" } }
+                                    }
+                                },
+                                logRecords
+                            }
+                        }
+                    }
+                }
+            };
+
+            // Serialize to JSON
+            string jsonString = JsonSerializer.Serialize(payloadObject, new JsonSerializerOptions { WriteIndented = true });
+
+            // Convert the JSON string to a stream
+            payload = new MemoryStream(Encoding.UTF8.GetBytes(jsonString));
+        }
+
+
+        void MakePayloadSeq(LogBufferEntry[] entries, bool oneOnly, out Stream utf8Payload, out ulong lastIncluded)
         {
             if (entries == null) throw new ArgumentNullException(nameof(entries));
             lastIncluded = 0;

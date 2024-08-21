@@ -121,7 +121,7 @@ The `seqfwd config` command reads and writes _SeqForwarder.json_:
     "internalLoggingLevel": "Information"
   },
   "output": {
-    "serverUrl": "http://localhost:5341",
+    "serverUrl": "http://localhost:4318",
     "eventBodyLimitBytes": 262144,
     "rawPayloadLimitBytes": 10485760,
     "apiKey": null
