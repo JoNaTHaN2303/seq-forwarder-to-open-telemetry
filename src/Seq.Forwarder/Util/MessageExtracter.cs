@@ -77,16 +77,14 @@ namespace Seq.Forwarder.Util
             this.observedTimeUnixNano = timeUnixNano;
         }
 
-        private long ToUnixTimeNanoseconds(DateTime dateTime)
+        private long ToUnixTimeNanoseconds(DateTimeOffset dateTimeOffset)
         {
-            // Convert to UTC to avoid time zone issues
-            dateTime = dateTime.ToUniversalTime();
-
-            // Calculate Unix time in nanoseconds
-            long unixTimeNanoseconds = (dateTime.Ticks - DateTime.UnixEpoch.Ticks) * 100;
+            // Convert to Unix time in nanoseconds
+            long unixTimeNanoseconds = (dateTimeOffset.ToUnixTimeMilliseconds() * 1_000_000) + (dateTimeOffset.UtcDateTime.Ticks % TimeSpan.TicksPerMillisecond * 100);
 
             return unixTimeNanoseconds;
         }
+
 
         // Helper method to parse attribute values based on their JSON type
         private object ParseAttributeValue(JsonElement valueElement)
