@@ -47,7 +47,7 @@ namespace Seq.Forwarder
             builder.Register(c =>
             {
                 var outputConfig = c.Resolve<SeqForwarderOutputConfig>();
-                var baseUri = outputConfig.ServerUrl; //ToDo make dynamic
+                var baseUri = outputConfig.ServerUrl;
                 if (string.IsNullOrWhiteSpace(baseUri))
                     throw new ArgumentException("The destination Seq server URL must be configured in SeqForwarder.json.");
 

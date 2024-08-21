@@ -73,7 +73,7 @@ namespace Seq.Forwarder.Shipper
                 if (_unloading)
                     throw new InvalidOperationException("The shipper is unloading.");
 
-                Log.Information("Log shipper started, events will be dispatched to {ServerUrl}", _outputConfig.ServerUrl); //ToDo make dynamic
+                Log.Information("Log shipper started, events will be dispatched to {ServerUrl}", _outputConfig.ServerUrl);
 
                 _nextRequiredLevelCheck = DateTime.UtcNow.Add(MaximumConnectionInterval);
                 _started = true;
@@ -135,8 +135,6 @@ namespace Seq.Forwarder.Shipper
 
                     //ToDo make sure this can be dynamic
                     MakePayloadOTel(available, sendingSingles > 0, out Stream payload, out ulong lastIncluded);
-                    //var payload = new MemoryStream(Encoding.UTF8.GetBytes("{\"resourceLogs\": [{\"resource\": {\"attributes\": [{\"key\": \"service.name\",\"value\": {\"stringValue\": \"service2\"}}]},\"scopeLogs\": [{\"scope\": {\"name\": \"my.library\",\"version\": \"1.0.0\",\"attributes\": [{\"key\": \"my.scope.attribute\",\"value\": {\"stringValue\": \"some scope attribute\"}}]},\"logRecords\": [{\"timeUnixNano\": \"1724228899000000000\",\"observedTimeUnixNano\": \"1724228899000000000\",\"severityNumber\": 10,\"severityText\": \"Information\",\"traceId\": \"5B8EFFF798038103D269B633813FC60C\",\"spanId\": \"EEE19B7EC3C1B174\",\"body\": {\"stringValue\": \"Example log record\"},\"attributes\": [{\"key\": \"string.attribute\",\"value\": {\"stringValue\": \"some string\"}},{\"key\": \"boolean.attribute\",\"value\": {\"boolValue\": true}},{\"key\": \"int.attribute\",\"value\": {\"intValue\": \"10\"}},{\"key\": \"double.attribute\",\"value\": {\"doubleValue\": 637.704}},{\"key\": \"array.attribute\",\"value\": {\"arrayValue\": {\"values\": [{\"stringValue\": \"many\"},{\"stringValue\": \"values\"}]}}},{\"key\": \"map.attribute\",\"value\": {\"kvlistValue\": {\"values\": [{\"key\": \"some.map.key\",\"value\": {\"stringValue\": \"some value\"}}]}}}]}]}]}]}"));
-                    //ulong lastIncluded = 0;
 
                     var content = new StreamContent(new UnclosableStreamWrapper(payload));
                     content.Headers.ContentType = new MediaTypeHeaderValue("application/json")
