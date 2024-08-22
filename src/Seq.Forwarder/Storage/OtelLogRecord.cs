@@ -31,7 +31,13 @@ namespace Seq.Forwarder.Storage
         public string SpanId { get; private set; }
 
         [JsonPropertyName("attributes")]
-        public Dictionary<string, string?>? Attributes { get; private set; }
+        public List<Dictionary<string, object?>> Attributes { get; private set; }
+
+        [JsonPropertyName("resources")]
+        public Dictionary<string, string?>? Resources { get; private set; }
+
+        [JsonPropertyName("instrumentation_scope")]
+        public Dictionary<string, string?>? InstrumentationScope { get; private set; }
 
         public OtelLogRecord(byte[] entry)
         {
@@ -106,40 +112,71 @@ namespace Seq.Forwarder.Storage
                 }
 
                 // Extract additional attributes, including exceptions
-                Attributes = new Dictionary<string, string?>();
+                Attributes = new List<Dictionary<string, object?>>();
                 if (root.TryGetProperty("Exception", out JsonElement exceptionElement))
                 {
                     if (exceptionElement.ValueKind == JsonValueKind.String)
                     {
-                        // Exception is a string, parse it
                         string exceptionString = exceptionElement.GetString() ?? string.Empty;
 
                         // Extract exception message
                         int firstLineEndIndex = exceptionString.IndexOf("\r\n");
-                        if (firstLineEndIndex > 0)
-                        {
-                            Attributes["exception.message"] = exceptionString.Substring(0, firstLineEndIndex);
-                        }
-                        else
-                        {
-                            Attributes["exception.message"] = exceptionString;
-                        }
+                        string exceptionMessage = firstLineEndIndex > 0
+                            ? exceptionString.Substring(0, firstLineEndIndex)
+                            : exceptionString;
 
                         // Extract exception type
                         int typeEndIndex = exceptionString.IndexOf(':');
-                        if (typeEndIndex > 0)
-                        {
-                            Attributes["exception.type"] = exceptionString.Substring(0, typeEndIndex).Trim();
-                        }
+                        string exceptionType = typeEndIndex > 0
+                            ? exceptionString.Substring(0, typeEndIndex).Trim()
+                            : "UnknownException";
 
                         // Extract stack trace
                         int stackTraceStartIndex = exceptionString.IndexOf("   at ");
-                        if (stackTraceStartIndex >= 0)
+                        string exceptionStackTrace = stackTraceStartIndex >= 0
+                            ? exceptionString.Substring(stackTraceStartIndex).Trim()
+                            : "No stack trace available";
+
+                        // Add exception details to attributes
+                        Attributes.Add(new Dictionary<string, object?>
                         {
-                            Attributes["exception.stacktrace"] = exceptionString.Substring(stackTraceStartIndex).Trim();
-                        }
+                            { "key", "exception.message" },
+                            { "value", new { stringValue = exceptionMessage }}
+                        });
+
+                        Attributes.Add(new Dictionary<string, object?>
+                        {
+                            { "key", "exception.type" },
+                            { "value", new { stringValue = exceptionType } }
+                        });
+
+                        Attributes.Add(new Dictionary<string, object?>
+                        {
+                            { "key", "exception.stacktrace" },
+                            { "value", new { stringValue = exceptionStackTrace } }
+                        });
                     }
                 }
+
+                //// Extract Resources
+                //Resources = new Dictionary<string, string?>();
+                //if (root.TryGetProperty("resources", out JsonElement resourcesElement))
+                //{
+                //    foreach (JsonProperty resource in resourcesElement.EnumerateObject())
+                //    {
+                //        Resources[resource.Name] = resource.Value.GetString();
+                //    }
+                //}
+
+                //// Extract Instrumentation Scope
+                //InstrumentationScope = new Dictionary<string, string?>();
+                //if (root.TryGetProperty("instrumentation_scope", out JsonElement instrumentationScopeElement))
+                //{
+                //    foreach (JsonProperty scope in instrumentationScopeElement.EnumerateObject())
+                //    {
+                //        InstrumentationScope[scope.Name] = scope.Value.GetString();
+                //    }
+                //}
 
                 TraceId = string.Empty;
                 SpanId = string.Empty;
