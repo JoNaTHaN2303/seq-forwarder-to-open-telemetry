@@ -41,6 +41,17 @@ set the target Seq server URL and an optional API key:
 ./seqfwd start
 ```
 
+#### New Command: Selecting the Logging Backend
+
+You can now choose the logging backend (Seq or OpenTelemetry) using the backend option. 
+This automatically sets the appropriate serverUrl. 
+**NOTE** this overwrites serverUrl if you want to chose your serverUrl run the config command ./seqfwd config -k output.serverUrl --value="http://seq.example.com/" after changing the backend.
+
+```powershell
+./seqfwd config -k output.loggingBackend --value="Seq"
+./seqfwd config -k output.loggingBackend --value="OTel"
+```
+
 The default buffer size limit is 64 MB. In the example, this is increased to 1 GB.
 
 To upgrade, stop the service, overwrite the forwarder release bundle, and restart the service.

@@ -7,7 +7,7 @@ using System.Text.Json.Serialization;
 
 namespace Seq.Forwarder.Storage
 {
-    public class LogRecord
+    public class OTelLogRecord
     {
         [JsonPropertyName("timeUnixNano")]
         public string Timestamp { get; private set; }
@@ -36,7 +36,7 @@ namespace Seq.Forwarder.Storage
         [JsonPropertyName("Attributes")]
         public object[]? Attributes { get; private set; }
 
-        public LogRecord(byte[] entry)
+        public OTelLogRecord(byte[] entry)
         {
             if(entry == null || entry.Length == 0)
                 throw new ArgumentException("JSON data cannot be null or empty", nameof(entry));

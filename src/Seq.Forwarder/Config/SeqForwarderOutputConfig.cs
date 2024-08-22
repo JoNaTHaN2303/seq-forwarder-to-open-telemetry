@@ -25,7 +25,15 @@ namespace Seq.Forwarder.Config
         //public string ServerUrl2 { get; set; } = "http://localhost:5341";
 
         //ToDo make sure this can be dynamic, 
-        public string ServerUrl { get; set; } = "http://localhost:4318";
+        //public string ServerUrl { get; set; } = "http://localhost:4318";
+
+        private string _serverUrl = "http://localhost:5341"; // Default to Seq
+        public string ServerUrl
+        {
+            get => _serverUrl;
+            private set => _serverUrl = value;
+        }
+
         public ulong EventBodyLimitBytes { get; set; } = 256 * 1024;
         public ulong RawPayloadLimitBytes { get; set; } = 10 * 1024 * 1024;
         public uint? PooledConnectionLifetimeMilliseconds { get; set; } = null;
@@ -44,7 +52,7 @@ namespace Seq.Forwarder.Config
 
             return dataProtector.Unprotect(ApiKey.Substring(ProtectedDataPrefix.Length));
         }
-        
+
         public void SetApiKey(string? apiKey, IStringDataProtector dataProtector)
         {
             if (string.IsNullOrWhiteSpace(apiKey))
@@ -54,6 +62,29 @@ namespace Seq.Forwarder.Config
             }
 
             ApiKey = $"{ProtectedDataPrefix}{dataProtector.Protect(apiKey)}";
+        }
+
+        // New property to set the logging backend and adjust ServerUrl dynamically
+        private string _loggingBackend = "Seq"; // Default to Seq
+
+        public string LoggingBackend
+        {
+            get => _loggingBackend;
+            set
+            {
+                _loggingBackend = value;
+                switch (_loggingBackend)
+                {
+                    case "OTel":
+                        ServerUrl = "http://localhost:4318"; // Default OTel server URL
+                        break;
+                    case "Seq":
+                        ServerUrl = "http://localhost:5341"; // Default Seq server URL
+                        break;
+                    default:
+                        throw new ArgumentException("Invalid logging backend. Use either 'Seq' or 'OTel'.");
+                }
+            }
         }
     }
 }
