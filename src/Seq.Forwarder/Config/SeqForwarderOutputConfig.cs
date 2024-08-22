@@ -13,7 +13,6 @@
 // limitations under the License.
 
 using System;
-using Newtonsoft.Json;
 using Seq.Forwarder.Cryptography;
 
 // ReSharper disable UnusedMember.Global, AutoPropertyCanBeMadeGetOnly.Global
@@ -22,11 +21,6 @@ namespace Seq.Forwarder.Config
 {
     public class SeqForwarderOutputConfig
     {
-        //public string ServerUrl2 { get; set; } = "http://localhost:5341";
-
-        //ToDo make sure this can be dynamic, 
-        //public string ServerUrl { get; set; } = "http://localhost:4318";
-
         private string _serverUrl = "http://localhost:5341"; // Default to Seq
         public string ServerUrl
         {
