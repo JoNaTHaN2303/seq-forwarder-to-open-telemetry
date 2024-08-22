@@ -30,8 +30,8 @@ namespace Seq.Forwarder.Storage
         [JsonPropertyName("spanId")]
         public string SpanId { get; private set; }
 
-        [JsonPropertyName("Attributes")]
-        public Dictionary<string, object?>? Attributes { get; private set; }
+        [JsonPropertyName("attributes")]
+        public Dictionary<string, string?>? Attributes { get; private set; }
 
         public OtelLogRecord(byte[] entry)
         {
@@ -106,22 +106,38 @@ namespace Seq.Forwarder.Storage
                 }
 
                 // Extract additional attributes, including exceptions
-                Attributes = new Dictionary<string, object?>();
+                Attributes = new Dictionary<string, string?>();
                 if (root.TryGetProperty("Exception", out JsonElement exceptionElement))
                 {
-                    if (exceptionElement.TryGetProperty("Message", out JsonElement messageElement))
+                    if (exceptionElement.ValueKind == JsonValueKind.String)
                     {
-                        Attributes["exception.message"] = messageElement.GetString();
-                    }
+                        // Exception is a string, parse it
+                        string exceptionString = exceptionElement.GetString() ?? string.Empty;
 
-                    if (exceptionElement.TryGetProperty("Type", out JsonElement typeElement))
-                    {
-                        Attributes["exception.type"] = typeElement.GetString();
-                    }
+                        // Extract exception message
+                        int firstLineEndIndex = exceptionString.IndexOf("\r\n");
+                        if (firstLineEndIndex > 0)
+                        {
+                            Attributes["exception.message"] = exceptionString.Substring(0, firstLineEndIndex);
+                        }
+                        else
+                        {
+                            Attributes["exception.message"] = exceptionString;
+                        }
 
-                    if (exceptionElement.TryGetProperty("StackTrace", out JsonElement stackTraceElement))
-                    {
-                        Attributes["exception.stacktrace"] = stackTraceElement.GetString();
+                        // Extract exception type
+                        int typeEndIndex = exceptionString.IndexOf(':');
+                        if (typeEndIndex > 0)
+                        {
+                            Attributes["exception.type"] = exceptionString.Substring(0, typeEndIndex).Trim();
+                        }
+
+                        // Extract stack trace
+                        int stackTraceStartIndex = exceptionString.IndexOf("   at ");
+                        if (stackTraceStartIndex >= 0)
+                        {
+                            Attributes["exception.stacktrace"] = exceptionString.Substring(stackTraceStartIndex).Trim();
+                        }
                     }
                 }
 
