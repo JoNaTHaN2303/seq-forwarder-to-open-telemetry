@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Seq.Forwarder.Storage
@@ -32,74 +33,108 @@ namespace Seq.Forwarder.Storage
         [JsonPropertyName("spanId")]
         public string SpanId { get; private set; }
 
+        [JsonPropertyName("Attributes")]
+        public object[]? Attributes { get; private set; }
+
         public LogRecord(byte[] entry)
         {
-            string? timestampStr = ExtractJsonValue(entry, "Timestamp");
-            if (DateTimeOffset.TryParse(timestampStr, out DateTimeOffset parsedTimestamp))
+            if(entry == null || entry.Length == 0)
+                throw new ArgumentException("JSON data cannot be null or empty", nameof(entry));
+
+            // Convert byte array to string
+            string jsonString = Encoding.UTF8.GetString(entry);
+
+
+            using (JsonDocument doc = JsonDocument.Parse(jsonString))
             {
-                Timestamp = ((DateTimeOffset)parsedTimestamp).ToUnixTimeNanoseconds().ToString();
-            }
-            else
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeNanoseconds().ToString();
-            }
-            TimestampObserved = DateTimeOffset.UtcNow.ToUnixTimeNanoseconds().ToString();
-            string? level = ExtractJsonValue(entry, "Level");
-            (SeverityNumber, SeverityText) = level != null ? LogLevelConverter.ConvertToOpenTelemetry(level) : (12, "INFO");
+                var root = doc.RootElement;
 
-            string? messageTemplate = ExtractJsonValue(entry, "MessageTemplate");
-            Body = new Dictionary<string, string?> { { "stringValue", messageTemplate } };
-
-            TraceId = "";
-            SpanId = "EEE19B7EC3C1B174";
-        }
-
-        private string? ExtractJsonValue(byte[] byteArray, string key)
-        {
-            byte[] keyBytes = Encoding.UTF8.GetBytes($"\"{key}\"");
-
-            int keyIndex = SearchBytePattern(byteArray, keyBytes);
-            if (keyIndex == -1) return null;
-
-            int valueStartIndex = keyIndex + keyBytes.Length;
-            while (valueStartIndex < byteArray.Length && (byteArray[valueStartIndex] == (byte)':'))
-            {
-                valueStartIndex++;
-            }
-
-            while (valueStartIndex < byteArray.Length && (byteArray[valueStartIndex] == (byte)' ' || byteArray[valueStartIndex] == (byte)'"'))
-            {
-                valueStartIndex++;
-            }
-
-            int valueEndIndex = valueStartIndex;
-            while (valueEndIndex < byteArray.Length && byteArray[valueEndIndex] != (byte)',' && byteArray[valueEndIndex] != (byte)'}' && byteArray[valueEndIndex] != (byte)'"')
-            {
-                valueEndIndex++;
-            }
-
-            return Encoding.UTF8.GetString(byteArray, valueStartIndex, valueEndIndex - valueStartIndex);
-        }
-
-        private int SearchBytePattern(byte[] haystack, byte[] needle)
-        {
-            for (int i = 0; i <= haystack.Length - needle.Length; i++)
-            {
-                bool found = true;
-                for (int j = 0; j < needle.Length; j++)
+                // Extract Timestamp
+                if (root.TryGetProperty("Timestamp", out JsonElement timestampElement))
                 {
-                    if (haystack[i + j] != needle[j])
+                    string? timestampStr = timestampElement.GetString();
+                    if (DateTimeOffset.TryParse(timestampStr, out DateTimeOffset parsedTimestamp))
                     {
-                        found = false;
-                        break;
+                        Timestamp = parsedTimestamp.ToUnixTimeNanoseconds().ToString();
+                    }
+                    else
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeNanoseconds().ToString();
                     }
                 }
-                if (found)
+                else
                 {
-                    return i;
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeNanoseconds().ToString();
                 }
+
+                // Set the observed timestamp
+                TimestampObserved = DateTimeOffset.UtcNow.ToUnixTimeNanoseconds().ToString();
+
+                // Extract Level (Handle missing field by using nullable string)
+                string? level = null;
+                if (root.TryGetProperty("Level", out JsonElement levelElement))
+                {
+                    level = levelElement.GetString();
+                }
+                (SeverityNumber, SeverityText) = level != null ? LogLevelConverter.ConvertToOpenTelemetry(level) : (12, "INFO");
+
+                // Extract Properties (if they exist)
+                Dictionary<string, string?> properties = new();
+                if (root.TryGetProperty("Properties", out JsonElement propertiesElement))
+                {
+                    foreach (JsonProperty prop in propertiesElement.EnumerateObject())
+                    {
+                        properties[prop.Name] = prop.Value.ToString();
+                    }
+                }
+
+                // Extract MessageTemplate and replace placeholders with properties
+                if (root.TryGetProperty("MessageTemplate", out JsonElement messageTemplateElement))
+                {
+                    string? messageTemplate = messageTemplateElement.GetString();
+
+                    if (messageTemplate != null)
+                    {
+                        foreach (var property in properties)
+                        {
+                            messageTemplate = messageTemplate.Replace($"{{{property.Key}}}", property.Value);
+                        }
+                    }
+
+                    Body = new Dictionary<string, string?> { { "stringValue", messageTemplate } };
+                }
+                else
+                {
+                    Body = new Dictionary<string, string?> { { "stringValue", null } };
+                }
+
+                // Extract additional attributes
+                if (root.TryGetProperty("Attributes", out JsonElement attributesElement))
+                {
+                    var attributeList = new List<object>();
+
+                    foreach (JsonProperty attribute in attributesElement.EnumerateObject())
+                    {
+                        var attributeObject = new
+                        {
+                            key = attribute.Name,
+                            value = new
+                            {
+                                stringValue = attribute.Value.ValueKind == JsonValueKind.String
+                                              ? attribute.Value.GetString()
+                                              : attribute.Value.ToString()
+                            }
+                        };
+
+                        attributeList.Add(attributeObject);
+                    }
+
+                    Attributes = attributeList.ToArray();
+                }
+
+                TraceId = string.Empty;
+                SpanId = string.Empty;
             }
-            return -1;
         }
     }
 }

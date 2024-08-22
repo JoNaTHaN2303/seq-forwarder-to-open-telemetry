@@ -245,6 +245,7 @@ namespace Seq.Forwarder.Shipper
                 {
                     attributes = new[]
                     {
+                        //ToDo make sure you can enter service name
                         new { key = "service.name", value = new { stringValue = "service2" } }
                     }
                 },
