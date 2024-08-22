@@ -15,9 +15,6 @@ namespace Seq.Forwarder.Storage
         [JsonPropertyName("observedTimeUnixNano")]
         public string TimestampObserved { get; private set; }
 
-        [JsonIgnore]
-        public DateTime ParsedTimestamp { get; private set; }
-
         [JsonPropertyName("severityText")]
         public string SeverityText { get; private set; }
 
@@ -33,8 +30,8 @@ namespace Seq.Forwarder.Storage
         [JsonPropertyName("spanId")]
         public string SpanId { get; private set; }
 
-        [JsonPropertyName("Attributes")]
-        public object[]? Attributes { get; private set; }
+        [JsonPropertyName("attributes")]
+        public Dictionary<string, string?>? Attributes { get; private set; }
 
         public OtelLogRecord(byte[] entry)
         {
@@ -108,28 +105,40 @@ namespace Seq.Forwarder.Storage
                     Body = new Dictionary<string, string?> { { "stringValue", null } };
                 }
 
-                // Extract additional attributes
-                if (root.TryGetProperty("Attributes", out JsonElement attributesElement))
+                // Extract additional attributes, including exceptions
+                Attributes = new Dictionary<string, string?>();
+                if (root.TryGetProperty("Exception", out JsonElement exceptionElement))
                 {
-                    var attributeList = new List<object>();
-
-                    foreach (JsonProperty attribute in attributesElement.EnumerateObject())
+                    if (exceptionElement.ValueKind == JsonValueKind.String)
                     {
-                        var attributeObject = new
+                        // Exception is a string, parse it
+                        string exceptionString = exceptionElement.GetString() ?? string.Empty;
+
+                        // Extract exception message
+                        int firstLineEndIndex = exceptionString.IndexOf("\r\n");
+                        if (firstLineEndIndex > 0)
                         {
-                            key = attribute.Name,
-                            value = new
-                            {
-                                stringValue = attribute.Value.ValueKind == JsonValueKind.String
-                                              ? attribute.Value.GetString()
-                                              : attribute.Value.ToString()
-                            }
-                        };
+                            Attributes["exception.message"] = exceptionString.Substring(0, firstLineEndIndex);
+                        }
+                        else
+                        {
+                            Attributes["exception.message"] = exceptionString;
+                        }
 
-                        attributeList.Add(attributeObject);
+                        // Extract exception type
+                        int typeEndIndex = exceptionString.IndexOf(':');
+                        if (typeEndIndex > 0)
+                        {
+                            Attributes["exception.type"] = exceptionString.Substring(0, typeEndIndex).Trim();
+                        }
+
+                        // Extract stack trace
+                        int stackTraceStartIndex = exceptionString.IndexOf("   at ");
+                        if (stackTraceStartIndex >= 0)
+                        {
+                            Attributes["exception.stacktrace"] = exceptionString.Substring(stackTraceStartIndex).Trim();
+                        }
                     }
-
-                    Attributes = attributeList.ToArray();
                 }
 
                 TraceId = string.Empty;
