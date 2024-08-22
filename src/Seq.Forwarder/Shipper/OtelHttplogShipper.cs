@@ -202,7 +202,8 @@ namespace Seq.Forwarder.Shipper
             if (entries == null) throw new ArgumentNullException(nameof(entries));
             lastIncluded = 0;
 
-            var logRecords = new List<OtelLogRecord>();
+            var logRecords = new List<OTelLogRecord>();
+
             foreach (var logBufferEntry in entries)
             {
                 if ((ulong)logBufferEntry.Value.Length > _outputConfig.EventBodyLimitBytes)
@@ -213,7 +214,7 @@ namespace Seq.Forwarder.Shipper
                 }
 
                 // Create & Add a LogRecord object
-                logRecords.Add(new OtelLogRecord(logBufferEntry.Value));
+                logRecords.Add(new OTelLogRecord(logBufferEntry.Value));
 
                 lastIncluded = logBufferEntry.Key;
 
