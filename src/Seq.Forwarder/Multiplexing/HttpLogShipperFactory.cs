@@ -35,7 +35,7 @@ namespace Seq.Forwarder.Multiplexing
 
         public LogShipper Create(LogBuffer logBuffer, string? apiKey)
         {
-            if(_outputConfig.backendLogging == "Otel")
+            if(_outputConfig.LoggingBackend == "Otel")
                 return new OtelHttplogShipper(logBuffer, apiKey, _outputConfig, _serverResponseProxy, _outputHttpClient);
             return new HttpLogShipper(logBuffer, apiKey, _outputConfig, _serverResponseProxy, _outputHttpClient);
         }
