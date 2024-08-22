@@ -203,6 +203,7 @@ namespace Seq.Forwarder.Shipper
             lastIncluded = 0;
 
             var logRecords = new List<OTelLogRecord>();
+
             foreach (var logBufferEntry in entries)
             {
                 if ((ulong)logBufferEntry.Value.Length > _outputConfig.EventBodyLimitBytes)

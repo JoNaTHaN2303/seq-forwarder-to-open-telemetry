@@ -25,17 +25,12 @@ using Serilog;
 using System.Threading.Tasks;
 using Seq.Forwarder.Multiplexing;
 using Seq.Forwarder.Util;
-using System.Collections;
-using System.Collections.Generic;
-using System.Text.Json;
 
 namespace Seq.Forwarder.Shipper
 {
     sealed class HttpLogShipper : LogShipper
     {
-        //ToDo make dynamic
-        //const string BulkUploadResource = "api/events/raw";
-        const string BulkUploadResource = "v1/logs";
+        const string BulkUploadResource = "api/events/raw";
 
         readonly string? _apiKey;
         readonly LogBuffer _logBuffer;
@@ -123,6 +118,7 @@ namespace Seq.Forwarder.Shipper
                 do
                 {
                     var available = _logBuffer.Peek((int)_outputConfig.RawPayloadLimitBytes);
+
                     if (available.Length == 0)
                     {
                         if (DateTime.UtcNow < _nextRequiredLevelCheck || _connectionSchedule.LastConnectionFailed)
@@ -134,8 +130,7 @@ namespace Seq.Forwarder.Shipper
                         }
                     }
 
-                    //ToDo make sure this can be dynamic
-                    MakePayloadOTel(available, sendingSingles > 0, out Stream payload, out ulong lastIncluded);
+                    MakePayload(available, sendingSingles > 0, out Stream payload, out ulong lastIncluded);
 
                     var content = new StreamContent(new UnclosableStreamWrapper(payload));
                     content.Headers.ContentType = new MediaTypeHeaderValue("application/json")
@@ -207,71 +202,6 @@ namespace Seq.Forwarder.Shipper
                         SetTimer();
                 }
             }
-        }
-
-        void MakePayloadOTel(LogBufferEntry[] entries, bool oneOnly, out Stream utf8Payload, out ulong lastIncluded)
-        {
-            if (entries == null) throw new ArgumentNullException(nameof(entries));
-            lastIncluded = 0;
-
-            var logRecords = new List<OTelLogRecord>();
-            foreach (var logBufferEntry in entries)
-            {
-                if ((ulong)logBufferEntry.Value.Length > _outputConfig.EventBodyLimitBytes)
-                {
-                    Log.Information("Oversized event will be skipped, {Payload}", Encoding.UTF8.GetString(logBufferEntry.Value));
-                    lastIncluded = logBufferEntry.Key;
-                    continue;
-                }
-
-                // Create a LogRecord object
-                var logRecord = new OTelLogRecord(logBufferEntry.Value);
-                logRecords.Add(logRecord);
-
-                lastIncluded = logBufferEntry.Key;
-
-                if (oneOnly)
-                    break;
-            }
-
-            // Create an anonymous object that contains the logRecords array
-            var payload = new
-            {
-                resourceLogs = new[]
-                {
-            new
-            {
-                resource = new
-                {
-                    attributes = new[]
-                    {
-                        //ToDo make sure you can enter service name
-                        new { key = "service.name", value = new { stringValue = "service2" } }
-                    }
-                },
-                scopeLogs = new[]
-                {
-                    new
-                    {
-                        scope = new { name = "my.library", version = "1.0.0", attributes = new object[] { } },
-                        logRecords = logRecords.ToArray()
-                    }
-                }
-            }
-        }
-            };
-
-            // Serialize the anonymous object to JSON
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            var jsonString = JsonSerializer.Serialize(payload, options);
-
-            // Write the JSON string to the output stream
-            var raw = new MemoryStream();
-            var content = new StreamWriter(raw, new UTF8Encoding(false));
-            content.Write(jsonString);
-            content.Flush();
-            raw.Position = 0;
-            utf8Payload = raw;
         }
 
         void MakePayload(LogBufferEntry[] entries, bool oneOnly, out Stream utf8Payload, out ulong lastIncluded)
