@@ -22,7 +22,10 @@ namespace Seq.Forwarder.Config
 {
     public class SeqForwarderOutputConfig
     {
-        public string ServerUrl { get; set; } = "http://localhost:4318"; //5341 / 4317 / 4318
+        //public string ServerUrl2 { get; set; } = "http://localhost:5341";
+
+        //ToDo make sure this can be dynamic, 
+        public string ServerUrl { get; set; } = "http://localhost:4318";
         public ulong EventBodyLimitBytes { get; set; } = 256 * 1024;
         public ulong RawPayloadLimitBytes { get; set; } = 10 * 1024 * 1024;
         public uint? PooledConnectionLifetimeMilliseconds { get; set; } = null;

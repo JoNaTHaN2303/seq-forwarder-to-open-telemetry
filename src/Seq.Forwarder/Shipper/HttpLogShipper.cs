@@ -25,25 +25,16 @@ using Serilog;
 using System.Threading.Tasks;
 using Seq.Forwarder.Multiplexing;
 using Seq.Forwarder.Util;
-using Seq.Forwarder.Schema;
-using OpenTelemetry;
-using OpenTelemetry.Logs;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
-using Google.Protobuf;
-using OpenTelemetry.Proto.Collector.Logs.V1;
-using OpenTelemetry.Proto.Logs.V1;
-using OpenTelemetry.Proto.Common.V1;
+using System.Collections;
 using System.Collections.Generic;
-using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 using System.Text.Json;
-using Google.Protobuf.WellKnownTypes;
 
 namespace Seq.Forwarder.Shipper
 {
     sealed class HttpLogShipper : LogShipper
     {
+        //ToDo make dynamic
+        //const string BulkUploadResource = "api/events/raw";
         const string BulkUploadResource = "v1/logs";
 
         readonly string? _apiKey;
@@ -152,9 +143,9 @@ namespace Seq.Forwarder.Shipper
                         }
                     }
 
-                    //MakePayloadSeq(available, sendingSingles > 0, out Stream payload, out ulong lastIncluded);
-                    MakePayloadOpenTelemetry(available, sendingSingles > 0, out Stream payload, out ulong lastIncluded);
-                                        
+                    //ToDo make sure this can be dynamic
+                    MakePayloadOTel(available, sendingSingles > 0, out Stream payload, out ulong lastIncluded);
+
                     var content = new StreamContent(new UnclosableStreamWrapper(payload));
                     content.Headers.ContentType = new MediaTypeHeaderValue("application/json")
                     {
@@ -227,67 +218,72 @@ namespace Seq.Forwarder.Shipper
             }
         }
 
-        void MakePayloadOpenTelemetry(LogBufferEntry[] entries, bool oneOnly, out Stream payload, out ulong lastIncluded)
+        void MakePayloadOTel(LogBufferEntry[] entries, bool oneOnly, out Stream utf8Payload, out ulong lastIncluded)
         {
+            if (entries == null) throw new ArgumentNullException(nameof(entries));
             lastIncluded = 0;
 
-            // Create a list to hold log records
-            var logRecords = new List<object>();
-
-            // Iterate over each log entry
-            foreach (var entry in entries)
+            var logRecords = new List<LogRecord>();
+            foreach (var logBufferEntry in entries)
             {
-                logRecords.Add(new MessageExtracter(entry.Value));
+                if ((ulong)logBufferEntry.Value.Length > _outputConfig.EventBodyLimitBytes)
+                {
+                    Log.Information("Oversized event will be skipped, {Payload}", Encoding.UTF8.GetString(logBufferEntry.Value));
+                    lastIncluded = logBufferEntry.Key;
+                    continue;
+                }
 
-                lastIncluded = entry.Key;
+                // Create a LogRecord object
+                var logRecord = new LogRecord(logBufferEntry.Value);
+                logRecords.Add(logRecord);
+
+                lastIncluded = logBufferEntry.Key;
 
                 if (oneOnly)
                     break;
             }
 
-            // Construct the final payload
-            var payloadObject = new
+            // Create an anonymous object that contains the logRecords array
+            var payload = new
             {
                 resourceLogs = new[]
                 {
+            new
+            {
+                resource = new
+                {
+                    attributes = new[]
+                    {
+                        //ToDo make sure you can enter service name
+                        new { key = "service.name", value = new { stringValue = "service2" } }
+                    }
+                },
+                scopeLogs = new[]
+                {
                     new
                     {
-                        resource = new
-                        {
-                            attributes = new[]
-                            {
-                                new { key = "service.name", value = new { stringValue = "TestService3" } }
-                            }
-                        },
-                        scopeLogs = new[]
-                        {
-                            new
-                            {
-                                scope = new
-                                {
-                                    name = "my.library",
-                                    version = "1.0.0",
-                                    attributes = new[]
-                                    {
-                                        new { key = "my.scope.attribute", value = new { stringValue = "some scope attribute" } }
-                                    }
-                                },
-                                logRecords
-                            }
-                        }
+                        scope = new { name = "my.library", version = "1.0.0", attributes = new object[] { } },
+                        logRecords = logRecords.ToArray()
                     }
                 }
+            }
+        }
             };
 
-            // Serialize to JSON
-            string jsonString = JsonSerializer.Serialize(payloadObject, new JsonSerializerOptions { WriteIndented = true });
+            // Serialize the anonymous object to JSON
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var jsonString = JsonSerializer.Serialize(payload, options);
 
-            // Convert the JSON string to a stream
-            payload = new MemoryStream(Encoding.UTF8.GetBytes(jsonString));
+            // Write the JSON string to the output stream
+            var raw = new MemoryStream();
+            var content = new StreamWriter(raw, new UTF8Encoding(false));
+            content.Write(jsonString);
+            content.Flush();
+            raw.Position = 0;
+            utf8Payload = raw;
         }
 
-
-        void MakePayloadSeq(LogBufferEntry[] entries, bool oneOnly, out Stream utf8Payload, out ulong lastIncluded)
+        void MakePayload(LogBufferEntry[] entries, bool oneOnly, out Stream utf8Payload, out ulong lastIncluded)
         {
             if (entries == null) throw new ArgumentNullException(nameof(entries));
             lastIncluded = 0;
