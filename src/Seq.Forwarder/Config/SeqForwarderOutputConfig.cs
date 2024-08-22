@@ -22,11 +22,6 @@ namespace Seq.Forwarder.Config
 {
     public class SeqForwarderOutputConfig
     {
-        //public string ServerUrl2 { get; set; } = "http://localhost:5341";
-
-        //ToDo make sure this can be dynamic, 
-        //public string ServerUrl { get; set; } = "http://localhost:4318";
-
         private string _serverUrl = "http://localhost:5341"; // Default to Seq
         public string ServerUrl
         {
@@ -75,14 +70,14 @@ namespace Seq.Forwarder.Config
                 _loggingBackend = value;
                 switch (_loggingBackend)
                 {
-                    case "OTel":
-                        ServerUrl = "http://localhost:4318"; // Default OTel server URL
+                    case "Otel":
+                        ServerUrl = "http://localhost:4318"; // Default Otel server URL
                         break;
                     case "Seq":
                         ServerUrl = "http://localhost:5341"; // Default Seq server URL
                         break;
                     default:
-                        throw new ArgumentException("Invalid logging backend. Use either 'Seq' or 'OTel'.");
+                        throw new ArgumentException("Invalid logging backend. Use either 'Seq' or 'Otel'.");
                 }
             }
         }
