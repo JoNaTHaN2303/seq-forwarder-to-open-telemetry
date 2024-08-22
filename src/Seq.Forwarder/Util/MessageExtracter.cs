@@ -11,11 +11,10 @@ namespace Seq.Forwarder.Util
         public long? timeUnixNano { get; set; }
         public long? observedTimeUnixNano { get; set; }
         public string? severityText { get; set; }
-        public string? MessageTemplate { get; set; }
         public string? traceId { get; set; }
         public string? spanId { get; set; }
-        public string? Body { get; set; }
-        public Dictionary<string, object>? Attributes { get; set; }
+        public object? body { get; set; }
+        public object[]? attributes { get; set; }
 
         public MessageExtracter(byte[] jsonData) 
         {
@@ -52,29 +51,40 @@ namespace Seq.Forwarder.Util
                 // Extract MessageTemplate and assign to Body
                 if (root.TryGetProperty("MessageTemplate", out JsonElement messageTemplateElement))
                 {
-                    MessageTemplate = messageTemplateElement.GetString();
-                    Body = MessageTemplate;
+                    body = new
+                    {
+                        stringValue = messageTemplateElement.GetString()
+                    };
                 }
 
                 // Extract additional attributes
-                //if (root.TryGetProperty("Attributes", out JsonElement attributesElement))
-                //{
-                //    Attributes = new Dictionary<string, object>();
-
-                //    foreach (JsonProperty attribute in attributesElement.EnumerateObject())
-                //    {
-                //        Attributes.Add(attribute.Name, ParseAttributeValue(attribute.Value));
-                //    }
-                //}
-                Attributes = new Dictionary<string, object>
+                if (root.TryGetProperty("Attributes", out JsonElement attributesElement))
                 {
-                    { "example.attribute", "example value" }
-                };
+                    var attributeList = new List<object>();
+
+                    foreach (JsonProperty attribute in attributesElement.EnumerateObject())
+                    {
+                        var attributeObject = new
+                        {
+                            key = attribute.Name,
+                            value = new
+                            {
+                                stringValue = attribute.Value.ValueKind == JsonValueKind.String
+                                              ? attribute.Value.GetString()
+                                              : attribute.Value.ToString()
+                            }
+                        };
+
+                        attributeList.Add(attributeObject);
+                    }
+
+                    attributes = attributeList.ToArray();
+                }
             }
 
-            this.traceId = Guid.NewGuid().ToString("N").ToUpper();
-            this.spanId = Guid.NewGuid().ToSpanId();
-            this.observedTimeUnixNano = timeUnixNano;
+            traceId = Guid.NewGuid().ToString("N").ToUpper();
+            spanId = Guid.NewGuid().ToSpanId();
+            observedTimeUnixNano = timeUnixNano;
         }
 
         private long ToUnixTimeNanoseconds(DateTimeOffset dateTimeOffset)

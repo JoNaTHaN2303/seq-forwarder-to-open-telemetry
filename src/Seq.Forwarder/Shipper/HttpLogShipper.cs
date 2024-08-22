@@ -237,33 +237,8 @@ namespace Seq.Forwarder.Shipper
             // Iterate over each log entry
             foreach (var entry in entries)
             {
-                //logRecords.Add(new MessageExtracter(entry.Value));
-                var seqMessageEntry = new MessageExtracter(entry.Value);
+                logRecords.Add(new MessageExtracter(entry.Value));
 
-                // Convert log entry to OpenTelemetry log record format
-                var logRecord = new
-                {
-                    timeUnixNano = seqMessageEntry.timeUnixNano,
-                    observedTimeUnixNano = seqMessageEntry.observedTimeUnixNano,
-                    severityText = seqMessageEntry.severityText,
-                    traceId = seqMessageEntry.traceId,
-                    spanId = seqMessageEntry.spanId,
-                    body = new
-                    {
-                        stringValue = seqMessageEntry.MessageTemplate
-                    },
-                    attributes = new[]
-                    {
-                        new {
-                            key = "example.attribute",
-                            value = new {
-                                stringValue = "example value"
-                            }
-                        }
-                    }
-                };
-
-                logRecords.Add(logRecord);
                 lastIncluded = entry.Key;
 
                 if (oneOnly)
