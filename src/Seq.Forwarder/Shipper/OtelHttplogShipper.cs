@@ -1,36 +1,29 @@
-﻿// Copyright 2016-2017 Datalust Pty Ltd
+﻿//
+// Extends the basic Seq forwarder to dynamically transform
+// messages into the Open Telemetry standard.
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
-using System;
+using Seq.Forwarder.Multiplexing;
+using Seq.Forwarder.Storage;
+using Seq.Forwarder.Util;
+using Serilog;
 using System.IO;
-using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net;
 using System.Text;
+using System;
 using System.Threading;
-using Seq.Forwarder.Config;
-using Seq.Forwarder.Storage;
-using Serilog;
 using System.Threading.Tasks;
-using Seq.Forwarder.Multiplexing;
-using Seq.Forwarder.Util;
+using Seq.Forwarder.Config;
+using System.Collections.Generic;
+using System.Text.Json;
 
 namespace Seq.Forwarder.Shipper
 {
-    sealed class HttpLogShipper : LogShipper
+    public class OtelHttplogShipper : LogShipper
     {
-        const string BulkUploadResource = "api/events/raw";
+        const string BulkUploadResource = "v1/logs";
 
         readonly string? _apiKey;
         readonly LogBuffer _logBuffer;
@@ -48,7 +41,7 @@ namespace Seq.Forwarder.Shipper
 
         static readonly TimeSpan QuietWaitPeriod = TimeSpan.FromSeconds(2), MaximumConnectionInterval = TimeSpan.FromMinutes(2);
 
-        public HttpLogShipper(LogBuffer logBuffer, string? apiKey, SeqForwarderOutputConfig outputConfig, ServerResponseProxy serverResponseProxy, HttpClient outputHttpClient)
+        public OtelHttplogShipper(LogBuffer logBuffer, string? apiKey, SeqForwarderOutputConfig outputConfig, ServerResponseProxy serverResponseProxy, HttpClient outputHttpClient)
         {
             _apiKey = apiKey;
             _httpClient = outputHttpClient ?? throw new ArgumentNullException(nameof(outputHttpClient));
@@ -58,6 +51,7 @@ namespace Seq.Forwarder.Shipper
             _connectionSchedule = new ExponentialBackoffConnectionSchedule(QuietWaitPeriod);
             _timer = new Timer(s => OnTick());
         }
+
 
         public override void Start()
         {
@@ -94,7 +88,7 @@ namespace Seq.Forwarder.Shipper
             if (_timer.Dispose(wh))
                 wh.WaitOne();
         }
-        
+
         public override void Dispose()
         {
             Stop();
@@ -104,7 +98,6 @@ namespace Seq.Forwarder.Shipper
         {
             _timer.Change(_connectionSchedule.NextInterval, Timeout.InfiniteTimeSpan);
         }
-
         void OnTick()
         {
             OnTickAsync().Wait();
@@ -209,13 +202,7 @@ namespace Seq.Forwarder.Shipper
             if (entries == null) throw new ArgumentNullException(nameof(entries));
             lastIncluded = 0;
 
-            var raw = new MemoryStream();
-            var content = new StreamWriter(raw, Encoding.UTF8);
-            content.Write("{\"Events\":[");
-            content.Flush();
-            var contentRemainingBytes = (int) _outputConfig.RawPayloadLimitBytes - 13; // Includes closing delims
-
-            var delimStart = "";
+            var logRecords = new List<OtelLogRecord>();
             foreach (var logBufferEntry in entries)
             {
                 if ((ulong)logBufferEntry.Value.Length > _outputConfig.EventBodyLimitBytes)
@@ -225,25 +212,50 @@ namespace Seq.Forwarder.Shipper
                     continue;
                 }
 
-                // lastIncluded indicates we've added at least one event
-                if (lastIncluded != 0 && contentRemainingBytes - (delimStart.Length + logBufferEntry.Value.Length) < 0)
-                    break;
-
-                content.Write(delimStart);
-                content.Flush();
-                contentRemainingBytes -= delimStart.Length;
-
-                raw.Write(logBufferEntry.Value, 0, logBufferEntry.Value.Length);
-                contentRemainingBytes -= logBufferEntry.Value.Length;
+                // Create & Add a LogRecord object
+                logRecords.Add(new OtelLogRecord(logBufferEntry.Value));
 
                 lastIncluded = logBufferEntry.Key;
 
-                delimStart = ",";
                 if (oneOnly)
                     break;
             }
 
-            content.Write("]}");
+            // Create an anonymous object that contains the logRecords array
+            var payload = new
+            {
+                resourceLogs = new[]
+                {
+                    new
+                    {
+                        resource = new
+                        {
+                            attributes = new[]
+                            {
+                                //TODO make sure you can enter service name
+                                new { key = "service.name", value = new { stringValue = "service2" } }
+                            }
+                        },
+                        scopeLogs = new[]
+                        {
+                            new
+                            {
+                                scope = new { name = "my.library", version = "1.0.0", attributes = new object[] { } },
+                                logRecords = logRecords.ToArray()
+                            }
+                        }
+                    }
+                }
+            };
+
+            // Serialize the anonymous object to JSON
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var jsonString = JsonSerializer.Serialize(payload, options);
+
+            // Write the JSON string to the output stream
+            var raw = new MemoryStream();
+            var content = new StreamWriter(raw, new UTF8Encoding(false));
+            content.Write(jsonString);
             content.Flush();
             raw.Position = 0;
             utf8Payload = raw;
