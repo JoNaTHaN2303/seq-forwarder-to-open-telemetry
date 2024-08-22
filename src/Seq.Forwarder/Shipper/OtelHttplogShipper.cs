@@ -202,7 +202,7 @@ namespace Seq.Forwarder.Shipper
             if (entries == null) throw new ArgumentNullException(nameof(entries));
             lastIncluded = 0;
 
-            var logRecords = new List<OTelLogRecord>();
+            var logRecords = new List<OtelLogRecord>();
 
             foreach (var logBufferEntry in entries)
             {
@@ -214,7 +214,7 @@ namespace Seq.Forwarder.Shipper
                 }
 
                 // Create & Add a LogRecord object
-                logRecords.Add(new OTelLogRecord(logBufferEntry.Value));
+                logRecords.Add(new OtelLogRecord(logBufferEntry.Value));
 
                 lastIncluded = logBufferEntry.Key;
 
