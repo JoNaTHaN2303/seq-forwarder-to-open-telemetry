@@ -38,8 +38,6 @@
     <PackageReference Include="autofac.extensions.dependencyinjection" Version="9.0.0" />
     <PackageReference Include="lightningdb" Version="0.10.0" />
     <PackageReference Include="newtonsoft.json" Version="13.0.3" />
-    <PackageReference Include="OpenTelemetry" Version="1.9.0" />
-    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.9.0" />
     <PackageReference Include="serilog" Version="3.1.1" />
     <PackageReference Include="serilog.aspnetcore" Version="8.0.1" />
     <PackageReference Include="serilog.formatting.compact" Version="2.0.0" />
