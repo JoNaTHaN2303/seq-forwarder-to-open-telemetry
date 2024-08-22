@@ -1,0 +1,264 @@
+﻿//
+// Extends the basic Seq forwarder to dynamically transform
+// messages into the Open Telemetry standard.
+//
+
+using Seq.Forwarder.Multiplexing;
+using Seq.Forwarder.Storage;
+using Seq.Forwarder.Util;
+using Serilog;
+using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Net;
+using System.Text;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Seq.Forwarder.Config;
+using System.Collections.Generic;
+using System.Text.Json;
+
+namespace Seq.Forwarder.Shipper
+{
+    public class OtelHttplogShipper : LogShipper
+    {
+        const string BulkUploadResource = "v1/logs";
+
+        readonly string? _apiKey;
+        readonly LogBuffer _logBuffer;
+        readonly SeqForwarderOutputConfig _outputConfig;
+        readonly HttpClient _httpClient;
+        readonly ExponentialBackoffConnectionSchedule _connectionSchedule;
+        readonly ServerResponseProxy _serverResponseProxy;
+        DateTime _nextRequiredLevelCheck;
+
+        readonly object _stateLock = new object();
+        readonly Timer _timer;
+        bool _started;
+
+        volatile bool _unloading;
+
+        static readonly TimeSpan QuietWaitPeriod = TimeSpan.FromSeconds(2), MaximumConnectionInterval = TimeSpan.FromMinutes(2);
+
+        public OtelHttplogShipper(LogBuffer logBuffer, string? apiKey, SeqForwarderOutputConfig outputConfig, ServerResponseProxy serverResponseProxy, HttpClient outputHttpClient)
+        {
+            _apiKey = apiKey;
+            _httpClient = outputHttpClient ?? throw new ArgumentNullException(nameof(outputHttpClient));
+            _logBuffer = logBuffer ?? throw new ArgumentNullException(nameof(logBuffer));
+            _outputConfig = outputConfig ?? throw new ArgumentNullException(nameof(outputConfig));
+            _serverResponseProxy = serverResponseProxy ?? throw new ArgumentNullException(nameof(serverResponseProxy));
+            _connectionSchedule = new ExponentialBackoffConnectionSchedule(QuietWaitPeriod);
+            _timer = new Timer(s => OnTick());
+        }
+
+
+        public override void Start()
+        {
+            lock (_stateLock)
+            {
+                if (_started)
+                    throw new InvalidOperationException("The shipper has already started.");
+
+                if (_unloading)
+                    throw new InvalidOperationException("The shipper is unloading.");
+
+                Log.Information("Log shipper started, events will be dispatched to {ServerUrl}", _outputConfig.ServerUrl);
+
+                _nextRequiredLevelCheck = DateTime.UtcNow.Add(MaximumConnectionInterval);
+                _started = true;
+                SetTimer();
+            }
+        }
+
+        public override void Stop()
+        {
+            lock (_stateLock)
+            {
+                if (_unloading)
+                    return;
+
+                _unloading = true;
+
+                if (!_started)
+                    return;
+            }
+
+            var wh = new ManualResetEvent(false);
+            if (_timer.Dispose(wh))
+                wh.WaitOne();
+        }
+
+        public override void Dispose()
+        {
+            Stop();
+        }
+
+        void SetTimer()
+        {
+            _timer.Change(_connectionSchedule.NextInterval, Timeout.InfiniteTimeSpan);
+        }
+        void OnTick()
+        {
+            OnTickAsync().Wait();
+        }
+
+        async Task OnTickAsync()
+        {
+            try
+            {
+                var sendingSingles = 0;
+                do
+                {
+                    var available = _logBuffer.Peek((int)_outputConfig.RawPayloadLimitBytes);
+
+                    if (available.Length == 0)
+                    {
+                        if (DateTime.UtcNow < _nextRequiredLevelCheck || _connectionSchedule.LastConnectionFailed)
+                        {
+                            // For whatever reason, there's nothing waiting to send. This means we should try connecting again at the
+                            // regular interval, so mark the attempt as successful.
+                            _connectionSchedule.MarkSuccess();
+                            break;
+                        }
+                    }
+
+                    MakePayload(available, sendingSingles > 0, out Stream payload, out ulong lastIncluded);
+
+                    var content = new StreamContent(new UnclosableStreamWrapper(payload));
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/json")
+                    {
+                        CharSet = Encoding.UTF8.WebName
+                    };
+
+                    if (_apiKey != null)
+                    {
+                        content.Headers.Add(SeqApi.ApiKeyHeaderName, _apiKey);
+                    }
+
+                    var result = await _httpClient.PostAsync(BulkUploadResource, content);
+                    if (result.IsSuccessStatusCode)
+                    {
+                        _connectionSchedule.MarkSuccess();
+                        _logBuffer.Dequeue(lastIncluded);
+                        if (sendingSingles > 0)
+                            sendingSingles--;
+
+                        _serverResponseProxy.SuccessResponseReturned(_apiKey, await result.Content.ReadAsStringAsync());
+                        _nextRequiredLevelCheck = DateTime.UtcNow.Add(MaximumConnectionInterval);
+                    }
+                    else if (result.StatusCode == HttpStatusCode.BadRequest ||
+                                result.StatusCode == HttpStatusCode.RequestEntityTooLarge)
+                    {
+                        // The connection attempt was successful - the payload we sent was the problem.
+                        _connectionSchedule.MarkSuccess();
+
+                        if (sendingSingles != 0)
+                        {
+                            payload.Position = 0;
+                            var payloadText = await new StreamReader(payload, Encoding.UTF8).ReadToEndAsync();
+                            Log.Error("HTTP shipping failed with {StatusCode}: {Result}; payload was {InvalidPayload}", result.StatusCode, await result.Content.ReadAsStringAsync(), payloadText);
+                            _logBuffer.Dequeue(lastIncluded);
+                            sendingSingles = 0;
+                        }
+                        else
+                        {
+                            // Unscientific (should "binary search" in batches) but sending the next
+                            // hundred events singly should flush out the problematic one.
+                            sendingSingles = 100;
+                        }
+                    }
+                    else
+                    {
+                        _connectionSchedule.MarkFailure();
+                        Log.Error("Received failed HTTP shipping result {StatusCode}: {Result}", result.StatusCode, await result.Content.ReadAsStringAsync());
+                        break;
+                    }
+                }
+                while (true);
+            }
+            catch (HttpRequestException hex)
+            {
+                Log.Warning(hex, "HTTP request failed when sending a batch from the log shipper");
+                _connectionSchedule.MarkFailure();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Exception while sending a batch from the log shipper");
+                _connectionSchedule.MarkFailure();
+            }
+            finally
+            {
+                lock (_stateLock)
+                {
+                    if (!_unloading)
+                        SetTimer();
+                }
+            }
+        }
+
+        void MakePayload(LogBufferEntry[] entries, bool oneOnly, out Stream utf8Payload, out ulong lastIncluded)
+        {
+            if (entries == null) throw new ArgumentNullException(nameof(entries));
+            lastIncluded = 0;
+
+            var logRecords = new List<OTelLogRecord>();
+            foreach (var logBufferEntry in entries)
+            {
+                if ((ulong)logBufferEntry.Value.Length > _outputConfig.EventBodyLimitBytes)
+                {
+                    Log.Information("Oversized event will be skipped, {Payload}", Encoding.UTF8.GetString(logBufferEntry.Value));
+                    lastIncluded = logBufferEntry.Key;
+                    continue;
+                }
+
+                // Create & Add a LogRecord object
+                logRecords.Add(new OTelLogRecord(logBufferEntry.Value));
+
+                lastIncluded = logBufferEntry.Key;
+
+                if (oneOnly)
+                    break;
+            }
+
+            // Create an anonymous object that contains the logRecords array
+            var payload = new
+            {
+                resourceLogs = new[]
+                {
+                    new
+                    {
+                        resource = new
+                        {
+                            attributes = new[]
+                            {
+                                //TODO make sure you can enter service name
+                                new { key = "service.name", value = new { stringValue = "service2" } }
+                            }
+                        },
+                        scopeLogs = new[]
+                        {
+                            new
+                            {
+                                scope = new { name = "my.library", version = "1.0.0", attributes = new object[] { } },
+                                logRecords = logRecords.ToArray()
+                            }
+                        }
+                    }
+                }
+            };
+
+            // Serialize the anonymous object to JSON
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var jsonString = JsonSerializer.Serialize(payload, options);
+
+            // Write the JSON string to the output stream
+            var raw = new MemoryStream();
+            var content = new StreamWriter(raw, new UTF8Encoding(false));
+            content.Write(jsonString);
+            content.Flush();
+            raw.Position = 0;
+            utf8Payload = raw;
+        }
+    }
+}
