@@ -15,9 +15,6 @@ namespace Seq.Forwarder.Storage
         [JsonPropertyName("observedTimeUnixNano")]
         public string TimestampObserved { get; private set; }
 
-        [JsonIgnore]
-        public DateTime ParsedTimestamp { get; private set; }
-
         [JsonPropertyName("severityText")]
         public string SeverityText { get; private set; }
 
@@ -34,7 +31,7 @@ namespace Seq.Forwarder.Storage
         public string SpanId { get; private set; }
 
         [JsonPropertyName("Attributes")]
-        public object[]? Attributes { get; private set; }
+        public Dictionary<string, object?>? Attributes { get; private set; }
 
         public OtelLogRecord(byte[] entry)
         {
@@ -108,28 +105,24 @@ namespace Seq.Forwarder.Storage
                     Body = new Dictionary<string, string?> { { "stringValue", null } };
                 }
 
-                // Extract additional attributes
-                if (root.TryGetProperty("Attributes", out JsonElement attributesElement))
+                // Extract additional attributes, including exceptions
+                Attributes = new Dictionary<string, object?>();
+                if (root.TryGetProperty("Exception", out JsonElement exceptionElement))
                 {
-                    var attributeList = new List<object>();
-
-                    foreach (JsonProperty attribute in attributesElement.EnumerateObject())
+                    if (exceptionElement.TryGetProperty("Message", out JsonElement messageElement))
                     {
-                        var attributeObject = new
-                        {
-                            key = attribute.Name,
-                            value = new
-                            {
-                                stringValue = attribute.Value.ValueKind == JsonValueKind.String
-                                              ? attribute.Value.GetString()
-                                              : attribute.Value.ToString()
-                            }
-                        };
-
-                        attributeList.Add(attributeObject);
+                        Attributes["exception.message"] = messageElement.GetString();
                     }
 
-                    Attributes = attributeList.ToArray();
+                    if (exceptionElement.TryGetProperty("Type", out JsonElement typeElement))
+                    {
+                        Attributes["exception.type"] = typeElement.GetString();
+                    }
+
+                    if (exceptionElement.TryGetProperty("StackTrace", out JsonElement stackTraceElement))
+                    {
+                        Attributes["exception.stacktrace"] = stackTraceElement.GetString();
+                    }
                 }
 
                 TraceId = string.Empty;
