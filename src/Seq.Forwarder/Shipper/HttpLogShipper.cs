@@ -118,14 +118,6 @@ namespace Seq.Forwarder.Shipper
                 do
                 {
                     var available = _logBuffer.Peek((int)_outputConfig.RawPayloadLimitBytes);
-                    
-                    if(available.Length > 1)
-                    {
-                        foreach (var field in available)
-                        {
-                            Console.WriteLine("available value: " + Encoding.UTF8.GetString(field.Value));
-                        }
-                    }
 
                     if (available.Length == 0)
                     {
@@ -138,7 +130,6 @@ namespace Seq.Forwarder.Shipper
                         }
                     }
 
-                    //ToDo make sure this can be dynamic
                     MakePayload(available, sendingSingles > 0, out Stream payload, out ulong lastIncluded);
 
                     var content = new StreamContent(new UnclosableStreamWrapper(payload));

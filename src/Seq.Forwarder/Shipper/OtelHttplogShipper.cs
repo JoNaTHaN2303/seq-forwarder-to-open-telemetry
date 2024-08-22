@@ -112,14 +112,6 @@ namespace Seq.Forwarder.Shipper
                 {
                     var available = _logBuffer.Peek((int)_outputConfig.RawPayloadLimitBytes);
 
-                    if (available.Length > 1)
-                    {
-                        foreach (var field in available)
-                        {
-                            Console.WriteLine("available value: " + Encoding.UTF8.GetString(field.Value));
-                        }
-                    }
-
                     if (available.Length == 0)
                     {
                         if (DateTime.UtcNow < _nextRequiredLevelCheck || _connectionSchedule.LastConnectionFailed)
