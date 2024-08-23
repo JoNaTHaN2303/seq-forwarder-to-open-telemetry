@@ -36,7 +36,7 @@ namespace Seq.Forwarder.Storage
             _env = new LightningEnvironment(bufferPath)
             {
                 // Sparse; we'd hope fragmentation never gets this bad...
-                MapSize = (long) bufferSizeBytes*10
+                MapSize = (long)bufferSizeBytes * 10
             };
 
             _env.Open();
@@ -46,20 +46,21 @@ namespace Seq.Forwarder.Storage
             {
                 using (var cur = tx.CreateCursor(db))
                 {
+                    // Corrected to handle failure to move to last entry
                     if (cur.Last() == MDBResultCode.Success)
-                    {
-                        _nextId = 1;
-                    }
-                    else
                     {
                         var current = cur.GetCurrent();
                         var lastKeyBytes = current.key.CopyToNewArray();
                         _nextId = ByteKeyToULongKey(lastKeyBytes) + 1;
-                        _entries = (ulong) tx.GetEntriesCount(db);
+                        _entries = (ulong)tx.GetEntriesCount(db);
+                    }
+                    else
+                    {
+                        _nextId = 1;
                     }
                 }
             }
-            
+
             Log.Information("Log buffer open on {BufferPath}; {Entries} entries, next key will be {NextId}", bufferPath, _entries, _nextId);
         }
 
@@ -70,7 +71,7 @@ namespace Seq.Forwarder.Storage
                 if (!_isDisposed)
                 {
                     _isDisposed = true;
-                    _env.Dispose();                    
+                    _env.Dispose();
                 }
             }
         }
@@ -93,11 +94,11 @@ namespace Seq.Forwarder.Storage
                         if (v == null) throw new ArgumentException("Value array may not contain null.");
 
                         tx.Put(db, ULongKeyToByteKey(_nextId++), v);
-                        totalPayloadWritten += (ulong) v.Length;
+                        totalPayloadWritten += (ulong)v.Length;
                     }
 
                     tx.Commit();
-                    _entries += (ulong) values.Length;
+                    _entries += (ulong)values.Length;
                     _writtenSinceRotateCheck += totalPayloadWritten;
                 }
 
@@ -107,7 +108,7 @@ namespace Seq.Forwarder.Storage
 
         void RotateIfRequired()
         {
-            if (_writtenSinceRotateCheck < _bufferSizeBytes/10)
+            if (_writtenSinceRotateCheck < _bufferSizeBytes / 10)
                 return;
 
             _writtenSinceRotateCheck = 0;
@@ -128,8 +129,8 @@ namespace Seq.Forwarder.Storage
                 // 2) MDB_envinfo tells the mapsize and the last_pgno.If you divide mapsize 
                 //    by pagesize you'll get max pgno. The MAP_FULL error is returned when last_pgno reaches max pgno.
 
-                var targetPages = _bufferSizeBytes/stat.ms_psize;
-                if ((ulong) estat.me_last_pgno < targetPages && (double) (ulong) estat.me_last_pgno/targetPages < 0.75)
+                var targetPages = _bufferSizeBytes / stat.ms_psize;
+                if ((ulong)estat.me_last_pgno < targetPages && (double)(ulong)estat.me_last_pgno / targetPages < 0.75)
                     return;
 
                 var count = tx.GetEntriesCount(db);
@@ -140,8 +141,7 @@ namespace Seq.Forwarder.Storage
                 }
 
                 var toPurge = Math.Max(count / 4, 1);
-                Log.Warning("Buffer is full; dropping {ToPurge} events to make room for new ones",
-                    toPurge);
+                Log.Warning("Buffer is full; dropping {ToPurge} events to make room for new ones", toPurge);
 
                 using (var cur = tx.CreateCursor(db))
                 {
@@ -240,6 +240,17 @@ namespace Seq.Forwarder.Storage
 
         static ulong ByteKeyToULongKey(byte[] key)
         {
+            if (key == null || key.Length == 0)
+                throw new ArgumentException("Key cannot be null or empty.", nameof(key));
+
+            if (key.Length < 8)
+            {
+                // If the key length is less than 8, pad the key with zeros at the beginning
+                var paddedKey = new byte[8];
+                Buffer.BlockCopy(key, 0, paddedKey, 8 - key.Length, key.Length);
+                key = paddedKey;
+            }
+
             var copy = new byte[key.Length];
             for (var i = 0; i < key.Length; ++i)
                 copy[copy.Length - (i + 1)] = key[i];
