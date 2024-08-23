@@ -46,14 +46,15 @@ namespace Seq.Forwarder.Storage
             {
                 using (var cur = tx.CreateCursor(db))
                 {
-                    if (!cur.MoveToLast())
+                    if (cur.Last() == MDBResultCode.Success)
                     {
                         _nextId = 1;
                     }
                     else
                     {
                         var current = cur.GetCurrent();
-                        _nextId = ByteKeyToULongKey(current.Key) + 1;
+                        var lastKeyBytes = current.key.CopyToNewArray();
+                        _nextId = ByteKeyToULongKey(lastKeyBytes) + 1;
                         _entries = (ulong) tx.GetEntriesCount(db);
                     }
                 }
@@ -115,12 +116,12 @@ namespace Seq.Forwarder.Storage
             using (var db = tx.OpenDatabase())
             {
                 int err;
-                if (0 != (err = Lmdb.mdb_env_info(_env.Handle(), out var estat)))
-                    throw new Exception(Lmdb.mdb_strerror(err));
+                if (0 != (err = (int)Lmdb.mdb_env_info(_env.Handle(), out var estat)))
+                    throw new Exception(Lmdb.mdb_strerror(err).ToString());
 
                 MDBStat stat;
-                if (0 != (err = Lmdb.mdb_stat(tx.Handle(), db.Handle(), out stat)))
-                    throw new Exception(Lmdb.mdb_strerror(err));
+                if (0 != (err = (int)Lmdb.mdb_stat(tx.Handle(), db.Handle(), out stat)))
+                    throw new Exception(Lmdb.mdb_strerror(err).ToString());
 
                 // http://www.openldap.org/lists/openldap-technical/201303/msg00145.html
                 // 1) MDB_stat gives you the page size.
@@ -144,12 +145,12 @@ namespace Seq.Forwarder.Storage
 
                 using (var cur = tx.CreateCursor(db))
                 {
-                    cur.MoveToFirst();
+                    cur.First();
 
                     for (var i = 0; i < toPurge; ++i)
                     {
                         cur.Delete();
-                        cur.MoveNext();
+                        cur.Next();
                     }
                 }
 
@@ -170,7 +171,7 @@ namespace Seq.Forwarder.Storage
                 {
                     using (var cur = tx.CreateCursor(db))
                     {
-                        if (cur.MoveToFirst())
+                        if (cur.First() == MDBResultCode.Success)
                         {
                             var entriesBytes = 0;
 
@@ -179,8 +180,8 @@ namespace Seq.Forwarder.Storage
                                 var current = cur.GetCurrent();
                                 var entry = new LogBufferEntry
                                 {
-                                    Key = ByteKeyToULongKey(current.Key),
-                                    Value = current.Value
+                                    Key = ByteKeyToULongKey(current.key.CopyToNewArray()),
+                                    Value = current.value.CopyToNewArray(),
                                 };
 
                                 entriesBytes += entry.Value.Length;
@@ -189,7 +190,7 @@ namespace Seq.Forwarder.Storage
 
                                 entries.Add(entry);
 
-                            } while (cur.MoveNext());
+                            } while (cur.Next() == MDBResultCode.Success);
                         }
                     }
                 }
@@ -211,17 +212,17 @@ namespace Seq.Forwarder.Storage
                 {
                     using (var cur = tx.CreateCursor(db))
                     {
-                        if (cur.MoveToFirst())
+                        if (cur.First() == MDBResultCode.Success)
                         {
                             do
                             {
                                 var current = cur.GetCurrent();
-                                if (ByteKeyToULongKey(current.Key) > toKey)
+                                if (ByteKeyToULongKey(current.key.CopyToNewArray()) > toKey)
                                     break;
 
                                 cur.Delete();
                                 deleted++;
-                            } while (cur.MoveNext());
+                            } while (cur.Next() == MDBResultCode.Success);
                         }
                     }
 
@@ -266,13 +267,13 @@ namespace Seq.Forwarder.Storage
                 {
                     using (var cur = tx.CreateCursor(db))
                     {
-                        if (cur.MoveToFirst())
+                        if (cur.First() == MDBResultCode.Success)
                         {
                             do
                             {
                                 var current = cur.GetCurrent();
-                                action(ByteKeyToULongKey(current.Key), current.Value);
-                            } while (cur.MoveNext());
+                                action(ByteKeyToULongKey(current.key.CopyToNewArray()), current.value.CopyToNewArray());
+                            } while (cur.Next() == MDBResultCode.Success);
                         }
                     }
                 }
