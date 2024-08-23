@@ -49,7 +49,7 @@ This automatically sets the appropriate serverUrl.
 
 ```powershell
 ./seqfwd config -k output.loggingBackend --value="Seq"
-./seqfwd config -k output.loggingBackend --value="OTel"
+./seqfwd config -k output.loggingBackend --value="Otel"
 ```
 
 The default buffer size limit is 64 MB. In the example, this is increased to 1 GB.
@@ -135,7 +135,8 @@ The `seqfwd config` command reads and writes _SeqForwarder.json_:
     "serverUrl": "http://localhost:5341",
     "eventBodyLimitBytes": 262144,
     "rawPayloadLimitBytes": 10485760,
-    "apiKey": null
+    "apiKey": null,
+    "loggingBackend": "Seq"
   },
   "storage": {
     "bufferSizeBytes": 67108864
